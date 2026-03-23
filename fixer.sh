@@ -245,7 +245,7 @@ run_verification() {
         "ISSUE_BODY=$issue_body" \
         "DIFF=$diff")"
     review_output="$tmpdir/review-${issue_number}-attempt${attempt}.txt"
-    echo "$review_prompt" | claude -p --dangerously-skip-permissions \
+    echo "$review_prompt" | claude -p --permission-mode auto \
         > "$review_output" 2>&1 &
     local pid_review=$!
 
@@ -255,7 +255,7 @@ run_verification() {
         "ISSUE_NUMBER=$issue_number" \
         "ISSUE_TITLE=$issue_title")"
     test_output="$tmpdir/test-${issue_number}-attempt${attempt}.txt"
-    echo "$test_prompt" | claude -p --dangerously-skip-permissions \
+    echo "$test_prompt" | claude -p --permission-mode auto \
         > "$test_output" 2>&1 &
     local pid_test=$!
 
@@ -264,7 +264,7 @@ run_verification() {
     security_prompt="$(render_prompt "$SCRIPT_DIR/prompts/security.txt" \
         "DIFF=$diff")"
     security_output="$tmpdir/security-${issue_number}-attempt${attempt}.txt"
-    echo "$security_prompt" | claude -p --dangerously-skip-permissions \
+    echo "$security_prompt" | claude -p --permission-mode auto \
         > "$security_output" 2>&1 &
     local pid_security=$!
 
@@ -335,13 +335,16 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
     ISSUE_RESOLVED=false
     FEEDBACK=""
 
+    # --- Create or switch to branch (once, before retry loop) ---
+    git checkout "$DEFAULT_BRANCH" 2>/dev/null
+    if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+        git checkout "$BRANCH_NAME" 2>/dev/null
+    else
+        git checkout -b "$BRANCH_NAME"
+    fi
+
     for attempt in $(seq 1 "$MAX_RETRIES"); do
         log "Attempt $attempt/$MAX_RETRIES for issue #${ISSUE_NUMBER}"
-
-        # --- Reset branch to clean state ---
-        git checkout "$DEFAULT_BRANCH" 2>/dev/null
-        git branch -D "$BRANCH_NAME" 2>/dev/null || true
-        git checkout -b "$BRANCH_NAME"
 
         # --- Build fix prompt (include feedback from prior attempts) ---
         FIX_PROMPT="$(render_prompt "$SCRIPT_DIR/prompts/fix.txt" \
@@ -364,7 +367,7 @@ $FEEDBACK"
         log "  Running fix agent..."
         FIX_OUTPUT="$TMPDIR/fix-${ISSUE_NUMBER}-attempt${attempt}.txt"
         if ! echo "$FIX_PROMPT" | claude -p \
-            --dangerously-skip-permissions \
+            --permission-mode auto \
             --verbose \
             > "$FIX_OUTPUT" 2>&1; then
             err "  Fix agent failed"
