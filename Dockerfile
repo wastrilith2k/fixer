@@ -25,7 +25,11 @@ ENV PATH="/home/fixer/.local/bin:/home/fixer/.nvm/versions/node/v22.22.1/bin:$PA
 USER fixer
 WORKDIR /home/fixer
 
+# Mount point for root-owned host configs (entrypoint copies + chowns)
+RUN mkdir -p /home/fixer/.claude
+
+COPY --chown=fixer:fixer entrypoint.sh /home/fixer/entrypoint.sh
 COPY --chown=fixer:fixer fixer.sh /home/fixer/fixer.sh
 COPY --chown=fixer:fixer prompts/ /home/fixer/prompts/
 
-ENTRYPOINT ["/home/fixer/fixer.sh"]
+ENTRYPOINT ["/home/fixer/entrypoint.sh"]

@@ -1,0 +1,24 @@
+{
+  "name": "@anthropic/fixer",
+  "version": "0.1.0",
+  "description": "Automated bug-fixing agent using headless Claude",
+  "bin": {
+    "fixer": "./bin/fixer.js"
+  },
+  "files": [
+    "bin/",
+    "prompts/",
+    "fixer.sh"
+  ],
+  "keywords": [
+    "claude",
+    "ai",
+    "bug-fix",
+    "agent",
+    "automation"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

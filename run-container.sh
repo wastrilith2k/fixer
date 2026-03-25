@@ -7,7 +7,8 @@ set -euo pipefail
 # Usage: ./run-container.sh <owner/repo> [issue_number ...]
 #
 # Runs as non-root user so --dangerously-skip-permissions works (no prompts).
-# Forwards GitHub and Anthropic auth + notification config into the container.
+# Host config files are mounted read-only to /mnt/claude-config/, then the
+# entrypoint copies them into the fixer user's home with correct ownership.
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,26 +28,31 @@ fi
 # Get Anthropic API key from environment or Claude config
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-    # Try to extract from Claude's config
     ANTHROPIC_API_KEY="$(jq -r '.apiKey // empty' ~/.claude/settings.json 2>/dev/null || true)"
 fi
+
+# Get git identity from host
+GIT_USER_NAME="$(git config --global user.name 2>/dev/null || echo 'fixer-agent')"
+GIT_USER_EMAIL="$(git config --global user.email 2>/dev/null || echo 'fixer@localhost')"
 
 ENV_ARGS=(
     -e "GH_TOKEN=$GH_TOKEN"
     -e "REPOS_ROOT=/home/fixer/repos"
+    -e "GIT_USER_NAME=$GIT_USER_NAME"
+    -e "GIT_USER_EMAIL=$GIT_USER_EMAIL"
 )
 
 if [[ -n "$ANTHROPIC_API_KEY" ]]; then
     ENV_ARGS+=(-e "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 fi
 
-# Mount Claude auth files (OAuth config + session data)
+# Mount host configs to staging dir (read-only) — entrypoint copies + chowns
 MOUNT_ARGS=()
 if [[ -d "$HOME/.claude" ]]; then
-    MOUNT_ARGS+=(-v "$HOME/.claude:/home/fixer/.claude:ro")
+    MOUNT_ARGS+=(-v "$HOME/.claude:/mnt/claude-config/.claude:ro")
 fi
 if [[ -f "$HOME/.claude.json" ]]; then
-    MOUNT_ARGS+=(-v "$HOME/.claude.json:/home/fixer/.claude.json:ro")
+    MOUNT_ARGS+=(-v "$HOME/.claude.json:/mnt/claude-config/.claude.json:ro")
 fi
 
 # Forward optional config vars if set
