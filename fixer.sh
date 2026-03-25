@@ -24,7 +24,14 @@ set -euo pipefail
 #                   As root: $CLAUDE_PERM
 # =============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so SCRIPT_DIR points to the real location (handles npm bin symlinks)
+_source="${BASH_SOURCE[0]}"
+while [[ -L "$_source" ]]; do
+    _dir="$(cd "$(dirname "$_source")" && pwd)"
+    _source="$(readlink "$_source")"
+    [[ "$_source" != /* ]] && _source="$_dir/$_source"
+done
+SCRIPT_DIR="$(cd "$(dirname "$_source")" && pwd)"
 REPOS_ROOT="${REPOS_ROOT:-$HOME/repos}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NOTIFY_METHOD="${NOTIFY_METHOD:-none}"
@@ -33,7 +40,7 @@ AUTO_MERGE="${AUTO_MERGE:-true}"
 # Auto-detect permission mode
 # As root: acceptEdits + explicit allowedTools (dangerously-skip-permissions is blocked as root)
 # Non-root: dangerously-skip-permissions for zero prompts
-CLAUDE_TOOLS="Bash,Edit,Read,Write,Glob,Grep,NotebookEdit"
+CLAUDE_TOOLS="Bash,Edit,Read,Write,Glob,Grep,NotebookEdit,WebFetch"
 if [[ -z "${CLAUDE_PERM:-}" ]]; then
     if [[ "$(id -u)" -eq 0 ]]; then
         CLAUDE_PERM="--permission-mode acceptEdits --allowedTools $CLAUDE_TOOLS"
