@@ -47,13 +47,13 @@ Each issue gets up to 3 attempts (configurable). On each retry, failure feedback
 Install globally from the git repo:
 
 ```bash
-npm install -g github:your-username/fixer
+npm install -g github:wastrilith2k/fixer
 ```
 
 Or clone and link locally:
 
 ```bash
-git clone https://github.com/your-username/fixer.git
+git clone https://github.com/wastrilith2k/fixer.git
 cd fixer
 npm link
 ```
@@ -365,7 +365,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm install -g claude-cli
-          npm install -g github:your-username/fixer
+          npm install -g github:wastrilith2k/fixer
 
       - name: Run fixer
         env:
