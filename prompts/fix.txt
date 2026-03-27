@@ -36,6 +36,8 @@ You are a bug-fixing agent. You have been given a GitHub issue describing a bug.
 - **Search before you create.** Before writing a utility function, helper, or any non-trivial logic, grep the codebase to check if it already exists. If it does, import and reuse it. Duplicating existing logic is a bug.
 - **No incomplete code.** Every function parameter must be used. Every try/except must do something meaningful. Every declared interface must be implemented. If you add a parameter to a function signature or a field to a schema, the implementation must use it. No stubs, no no-ops, no "TODO" comments.
 - **Use actual results, not estimates.** When a database or API operation returns result counts, use them — don't substitute values from a preceding query.
+- **Never block the event loop.** In async methods, wrap synchronous/blocking calls (HTTP requests, file I/O, CPU-bound work) with `asyncio.to_thread()`, `loop.run_in_executor()`, or the language-appropriate equivalent. "It's local so latency is low" is not an excuse — blocking is blocking.
+- **Apply patterns consistently across sibling methods.** If you add error handling, filtering, or validation to one method in a class, check if sibling methods (e.g., `generate` and `generate_stream`) need the same treatment.
 
 ### Testing
 - Every fix MUST include at least one test that would have caught the bug
