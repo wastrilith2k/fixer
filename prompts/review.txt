@@ -12,6 +12,7 @@ Review the provided git diff for:
 5. **Code quality**: Does the fix follow the project's existing patterns?
 6. **Test coverage**: Are the included tests sufficient to prevent regression?
 7. **Convention compliance**: Does the fix violate any rules in the project's convention files? Hardcoded values that should come from config functions, wrong instantiation patterns, or ignored project-specific rules are all failures.
+8. **API boundaries**: Does the fix call private/internal methods (prefixed with `_`) from outside their owning module? Does it instantiate classes directly when the codebase uses factory functions for them? Check how the same class is used in other files — the fix should follow the same pattern.
 
 ## Output Format
 
