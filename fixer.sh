@@ -260,10 +260,10 @@ gather_codebase_context() {
         context+="No convention files found (CLAUDE.md, .cursorrules, AGENTS.md, CONTRIBUTING.md)."$'\n\n'
     fi
 
-    # 2. Existing factory functions and singletons (get_*() pattern)
+    # 2. Existing factory functions and singletons (get_*/create_*/make_*/build_*/new_* patterns)
     local factories
     factories="$(grep -rn --include='*.py' --include='*.js' --include='*.ts' --include='*.go' \
-        -oP '(?:^|[ \t])def (get_\w+)\(|(?:^|[ \t])function (get_\w+)\(|(?:^|[ \t])func (Get\w+)\(' \
+        -oP '(?:^|[ \t])def ((?:get|create|make|build|new)_\w+)\(|(?:^|[ \t])function ((?:get|create|make|build|new)_\w+)\(|(?:^|[ \t])func ((?:Get|Create|Make|Build|New)\w+)\(' \
         "$repo_dir" 2>/dev/null | head -50 || true)"
     if [[ -n "$factories" ]]; then
         context+="### Existing Factory Functions"$'\n'
