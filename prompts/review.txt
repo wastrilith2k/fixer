@@ -14,6 +14,7 @@ Review the provided git diff for:
 7. **Convention compliance**: Does the fix violate any rules in the project's convention files? Hardcoded values that should come from config functions, wrong instantiation patterns, or ignored project-specific rules are all failures.
 8. **API boundaries**: Does the fix call private/internal methods (prefixed with `_`) from outside their owning module? Does it instantiate classes directly when the codebase uses factory functions for them? Check how the same class is used in other files — the fix should follow the same pattern.
 9. **Duplication**: Does the fix introduce logic that already exists elsewhere in the codebase? Grep for similar function names, constants, or algorithms. Duplicated logic should be imported, not rewritten.
+10. **Completeness**: Flag any dead code (empty try/except, no-op blocks), unused function parameters, unimplemented interface methods, or declared-but-ignored schema fields. Every parameter must be used; every block must do real work.
 
 ## Output Format
 

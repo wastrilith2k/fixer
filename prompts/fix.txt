@@ -34,6 +34,8 @@ You are a bug-fixing agent. You have been given a GitHub issue describing a bug.
 - **Use public APIs only.** Never call private/internal methods (prefixed with `_`) from outside their owning module. If you need functionality that only a private method provides, find or create a public interface.
 - **Check how classes are instantiated elsewhere** before using `Class()` directly. If the codebase uses factory functions (`get_thing()`, `create_thing()`), use them — they exist for a reason (singletons, initialization, DI).
 - **Search before you create.** Before writing a utility function, helper, or any non-trivial logic, grep the codebase to check if it already exists. If it does, import and reuse it. Duplicating existing logic is a bug.
+- **No incomplete code.** Every function parameter must be used. Every try/except must do something meaningful. Every declared interface must be implemented. If you add a parameter to a function signature or a field to a schema, the implementation must use it. No stubs, no no-ops, no "TODO" comments.
+- **Use actual results, not estimates.** When a database or API operation returns result counts, use them — don't substitute values from a preceding query.
 
 ### Testing
 - Every fix MUST include at least one test that would have caught the bug
