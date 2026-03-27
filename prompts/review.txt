@@ -17,6 +17,7 @@ Review the provided git diff for:
 10. **Completeness**: Flag any dead code (empty try/except, no-op blocks), unused function parameters, unimplemented interface methods, or declared-but-ignored schema fields. Every parameter must be used; every block must do real work.
 11. **Async correctness**: Does any async method call blocking/synchronous operations (HTTP requests, subprocess, file I/O, CPU-bound work) without wrapping in `asyncio.to_thread()` or equivalent? This blocks the event loop and is always a failure.
 12. **Cross-method consistency**: When the fix applies a pattern (kwargs filtering, error handling, validation) to one method, do sibling methods in the same class need the same treatment? Inconsistency within a class is a failure.
+13. **Thread safety**: Does the fix create shared mutable state (module-level globals, singletons) that could be accessed from multiple threads? The classic `if X is None: X = Thing()` pattern without a lock is thread-unsafe and should fail if the codebase uses any form of concurrency.
 
 ## Output Format
 
