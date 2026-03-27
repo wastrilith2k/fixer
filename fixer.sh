@@ -236,6 +236,83 @@ render_prompt() {
 }
 
 # -----------------------------------------------------------------------------
+# Helper: gather codebase context for the fix and review agents
+# Discovers conventions, existing patterns, and concurrency indicators.
+# Output is injected directly into prompts so agents can't skip Phase 1.
+# -----------------------------------------------------------------------------
+gather_codebase_context() {
+    local repo_dir="$1"
+    local context=""
+
+    # 1. Convention files — include verbatim (truncated to keep prompt reasonable)
+    local convention_files=("CLAUDE.md" ".cursorrules" "AGENTS.md" "CONTRIBUTING.md")
+    local found_conventions=false
+    for cf in "${convention_files[@]}"; do
+        if [[ -f "$repo_dir/$cf" ]]; then
+            found_conventions=true
+            context+="### $cf"$'\n'
+            context+='```'$'\n'
+            context+="$(head -200 "$repo_dir/$cf")"$'\n'
+            context+='```'$'\n\n'
+        fi
+    done
+    if ! $found_conventions; then
+        context+="No convention files found (CLAUDE.md, .cursorrules, AGENTS.md, CONTRIBUTING.md)."$'\n\n'
+    fi
+
+    # 2. Existing factory functions and singletons (get_*() pattern)
+    local factories
+    factories="$(grep -rn --include='*.py' --include='*.js' --include='*.ts' --include='*.go' \
+        -oP '(?:^|[ \t])def (get_\w+)\(|(?:^|[ \t])function (get_\w+)\(|(?:^|[ \t])func (Get\w+)\(' \
+        "$repo_dir" 2>/dev/null | head -50 || true)"
+    if [[ -n "$factories" ]]; then
+        context+="### Existing Factory Functions"$'\n'
+        context+='```'$'\n'
+        context+="$factories"$'\n'
+        context+='```'$'\n\n'
+    fi
+
+    # 3. Singleton patterns already in use
+    local singletons
+    singletons="$(grep -rn --include='*.py' --include='*.js' --include='*.ts' \
+        -P '^\w+\s*=\s*None|^_\w+\s*=\s*None|^let _\w+|^const _\w+' \
+        "$repo_dir" 2>/dev/null | head -30 || true)"
+    if [[ -n "$singletons" ]]; then
+        context+="### Module-Level Singletons"$'\n'
+        context+='```'$'\n'
+        context+="$singletons"$'\n'
+        context+='```'$'\n\n'
+    fi
+
+    # 4. Concurrency indicators
+    local concurrency
+    concurrency="$(grep -rln --include='*.py' --include='*.js' --include='*.ts' --include='*.go' \
+        -P 'ThreadPoolExecutor|asyncio\.|threading\.|multiprocessing\.|Worker|goroutine|Promise\.all|async\s+def' \
+        "$repo_dir" 2>/dev/null | head -20 || true)"
+    if [[ -n "$concurrency" ]]; then
+        context+="### Concurrency Detected In"$'\n'
+        context+='```'$'\n'
+        context+="$concurrency"$'\n'
+        context+='```'$'\n'
+        context+="**Thread safety is required for any shared mutable state.**"$'\n\n'
+    fi
+
+    # 5. Existing utility modules (likely reusable code)
+    local utils
+    utils="$(find "$repo_dir" -type f \( -name '*util*' -o -name '*helper*' -o -name '*common*' \) \
+        ! -path '*/node_modules/*' ! -path '*/.git/*' ! -path '*/venv/*' ! -path '*/__pycache__/*' \
+        2>/dev/null | head -20 || true)"
+    if [[ -n "$utils" ]]; then
+        context+="### Existing Utility Modules (check these before creating new helpers)"$'\n'
+        context+='```'$'\n'
+        context+="$utils"$'\n'
+        context+='```'$'\n\n'
+    fi
+
+    echo "$context"
+}
+
+# -----------------------------------------------------------------------------
 # Helper: extract VERDICT from sub-agent output
 # -----------------------------------------------------------------------------
 extract_verdict() {
@@ -265,6 +342,7 @@ run_verification() {
         "ISSUE_NUMBER=$issue_number" \
         "ISSUE_TITLE=$issue_title" \
         "ISSUE_BODY=$issue_body" \
+        "CODEBASE_CONTEXT=$CODEBASE_CONTEXT" \
         "DIFF=$diff")"
     review_output="$tmpdir/review-${issue_number}-attempt${attempt}.txt"
     echo "$review_prompt" | claude -p $CLAUDE_PERM \
@@ -370,6 +448,10 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
         echo '.claude/' >> "$REPO_DIR/.gitignore"
     fi
 
+    # --- Gather codebase context (once per issue, reused across retries) ---
+    log "  Gathering codebase context..."
+    CODEBASE_CONTEXT="$(gather_codebase_context "$REPO_DIR")"
+
     for attempt in $(seq 1 "$MAX_RETRIES"); do
         log "Attempt $attempt/$MAX_RETRIES for issue #${ISSUE_NUMBER}"
 
@@ -377,7 +459,8 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
         FIX_PROMPT="$(render_prompt "$SCRIPT_DIR/prompts/fix.txt" \
             "ISSUE_NUMBER=$ISSUE_NUMBER" \
             "ISSUE_TITLE=$ISSUE_TITLE" \
-            "ISSUE_BODY=$ISSUE_BODY")"
+            "ISSUE_BODY=$ISSUE_BODY" \
+            "CODEBASE_CONTEXT=$CODEBASE_CONTEXT")"
 
         if [[ -n "$FEEDBACK" && $attempt -gt 1 ]]; then
             FIX_PROMPT+="

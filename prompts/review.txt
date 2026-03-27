@@ -39,6 +39,12 @@ ISSUE_TITLE: {{ISSUE_TITLE}}
 ISSUE_BODY:
 {{ISSUE_BODY}}
 
+## Codebase Context (auto-generated)
+
+Use this to verify the diff against the project's actual conventions, factories, and patterns.
+
+{{CODEBASE_CONTEXT}}
+
 ## Diff to Review
 
 {{DIFF}}
