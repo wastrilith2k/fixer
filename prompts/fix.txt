@@ -28,6 +28,7 @@ You are a bug-fixing agent. You have been given a GitHub issue describing a bug.
 
 ### Conventions
 - **Project convention files (CLAUDE.md, etc.) are law** — if they say "never hardcode X" or "always use Y()", you MUST comply. Violations are bugs.
+- **Never hardcode values that should come from configuration.** If the codebase has config helpers, persona functions, or environment variables for a value (names, pronouns, URLs, keys, labels), use them. Grep for how existing code obtains these values and follow the same pattern.
 - Follow the existing code style and testing patterns in the project
 - When creating new code, match the patterns used by neighboring modules — don't invent new patterns
 
