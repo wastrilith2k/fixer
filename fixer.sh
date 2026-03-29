@@ -18,6 +18,8 @@ set -euo pipefail
 #   SMTP_TO       — recipient email address (required if notify=email)
 #   SMTP_FROM     — sender email address (default: fixer@localhost)
 #   AUTO_MERGE    — set to "true" to enable auto-merge on PRs (default: true)
+#   KEEP_REPO     — set to "true" to keep the cloned repo after completion
+#                   (default: false — repo is removed when done)
 #   FIXER_LOG     — path to log file (default: /tmp/fixer-<timestamp>.log)
 #   CLAUDE_PERM   — claude permission flag (default: auto-detected)
 #                   In containers as non-root: --dangerously-skip-permissions
@@ -36,6 +38,7 @@ REPOS_ROOT="${REPOS_ROOT:-$HOME/repos}"
 MAX_RETRIES="${MAX_RETRIES:-3}"
 NOTIFY_METHOD="${NOTIFY_METHOD:-none}"
 AUTO_MERGE="${AUTO_MERGE:-true}"
+KEEP_REPO="${KEEP_REPO:-false}"
 
 # Auto-detect permission mode
 # As root: acceptEdits + explicit allowedTools (dangerously-skip-permissions is blocked as root)
@@ -135,6 +138,7 @@ usage() {
     echo "  SMTP_TO        Recipient email address"
     echo "  SMTP_FROM      Sender email address (default: fixer@localhost)"
     echo "  AUTO_MERGE     Enable auto-merge on PRs: true/false (default: true)"
+    echo "  KEEP_REPO      Keep cloned repo after completion: true/false (default: false)"
     echo "  FIXER_LOG      Log file path (default: /tmp/fixer-<timestamp>.log)"
     exit 1
 }
@@ -696,6 +700,15 @@ fi
 if [[ $FAIL_COUNT -gt 0 ]]; then
     trap - EXIT
     warn "Keeping temp output in $TMPDIR for debugging"
+fi
+
+# Clean up cloned repo unless KEEP_REPO is set
+if [[ "$KEEP_REPO" != "true" ]]; then
+    log "Removing cloned repo $REPO_DIR..."
+    rm -rf "$REPO_DIR"
+    ok "Repo cleaned up"
+else
+    log "Keeping repo at $REPO_DIR (KEEP_REPO=true)"
 fi
 
 exit "$FAIL_COUNT"
