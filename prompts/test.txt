@@ -22,3 +22,10 @@ VERDICT: FAIL — <which tests failed and why>
 
 ISSUE_NUMBER: {{ISSUE_NUMBER}}
 ISSUE_TITLE: {{ISSUE_TITLE}}
+
+## Acceptance Criteria (if any)
+
+If criteria are listed below, ensure the test suite validates each one.
+Report any criterion not covered by tests as a FAIL.
+
+{{VERIFICATION_CRITERIA}}

@@ -51,6 +51,14 @@ You are a bug-fixing agent. You have been given a GitHub issue describing a bug.
 ### Feedback
 - If a "Previous Attempt Feedback" section is included below, you MUST address every issue raised
 
+## Acceptance Criteria (if any)
+
+Your fix MUST satisfy each of these criteria. The review agent will check
+them explicitly. If no criteria are listed below, apply general code quality
+standards instead.
+
+{{VERIFICATION_CRITERIA}}
+
 ## Codebase Context (auto-generated)
 
 The following was gathered automatically from the target repository. Use this as your starting point — it contains the project's conventions, existing patterns, and concurrency profile. You MUST still read the full convention files and explore further, but this ensures you don't miss critical context.

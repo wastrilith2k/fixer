@@ -435,6 +435,7 @@ run_verification() {
         "ISSUE_TITLE=$issue_title" \
         "ISSUE_BODY=$issue_body" \
         "CODEBASE_CONTEXT=$CODEBASE_CONTEXT" \
+        "VERIFICATION_CRITERIA=$VERIFICATION_CRITERIA" \
         "DIFF=$diff")"
     review_output="$tmpdir/review-${issue_number}-attempt${attempt}.txt"
     echo "$review_prompt" | claude -p $CLAUDE_PERM \
@@ -445,7 +446,8 @@ run_verification() {
     local test_prompt test_output
     test_prompt="$(render_prompt "$SCRIPT_DIR/prompts/test.txt" \
         "ISSUE_NUMBER=$issue_number" \
-        "ISSUE_TITLE=$issue_title")"
+        "ISSUE_TITLE=$issue_title" \
+        "VERIFICATION_CRITERIA=$VERIFICATION_CRITERIA")"
     test_output="$tmpdir/test-${issue_number}-attempt${attempt}.txt"
     echo "$test_prompt" | claude -p $CLAUDE_PERM \
         > "$test_output" 2>&1 &
@@ -650,7 +652,8 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
             "ISSUE_NUMBER=$ISSUE_NUMBER" \
             "ISSUE_TITLE=$ISSUE_TITLE" \
             "ISSUE_BODY=$ISSUE_BODY" \
-            "CODEBASE_CONTEXT=$CODEBASE_CONTEXT")"
+            "CODEBASE_CONTEXT=$CODEBASE_CONTEXT" \
+            "VERIFICATION_CRITERIA=$VERIFICATION_CRITERIA")"
 
         if [[ -n "$FEEDBACK" && $attempt -gt 1 ]]; then
             FIX_PROMPT+="
