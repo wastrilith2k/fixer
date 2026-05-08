@@ -191,9 +191,107 @@ Environment variables take precedence over config file values. Useful for CI or 
 | `SMTP_TO` | `smtpTo` | Recipient email |
 | `SMTP_FROM` | `smtpFrom` | Sender email |
 | `FIXER_LOG` | — | Log file path (default: `/tmp/fixer-<timestamp>.log`) |
+| `FIXER_STATE_FILE` | — | Path to persistent state file (default: `~/.fixer/state.json`) |
 | `CLAUDE_PERM` | — | Override Claude permission flags |
 | `GH_TOKEN` | — | GitHub token (default: from `gh auth`) |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key (Docker mode) |
+
+## Issue Verification Criteria
+
+You can add a `## Verification` section to any GitHub issue body to specify
+acceptance criteria. Fixer will pass these criteria to the fix, review, and
+test agents, which will check them explicitly.
+
+**Example issue body:**
+
+```
+The login flow crashes when the email contains a `+` character.
+
+Steps to reproduce:
+1. Try to log in with `user+tag@example.com`
+2. Observe the 500 error
+
+## Verification
+
+- Logging in with `user+tag@example.com` no longer returns a 500 error
+- Logging in with a normal email still works
+- A regression test covers the `+` character case
+```
+
+If no `## Verification` section is present, Fixer applies general code quality
+standards instead.
+
+## Issue Classification
+
+Before attempting a fix, Fixer classifies each issue:
+
+| Classification | Meaning | Action |
+|----------------|---------|--------|
+| `AUTO_FIX` | Clear, reproducible bug that can be fixed from repo code | Enters fix loop |
+| `NEEDS_HUMAN` | Missing repro steps, design question, or requires runtime data | Posts a question, labels `fixer:awaiting-human`, waits |
+| `WONTFIX` | Already fixed, working as designed, or duplicate | Posts a note, labels `fixer:wontfix`, skips |
+
+### Labels
+
+Fixer creates these labels on first use (idempotent):
+
+| Label | Color | Meaning |
+|-------|-------|---------|
+| `fixer:in-progress` | Blue | Fixer is actively working on the issue |
+| `fixer:awaiting-human` | Yellow | Fixer posted a question and is waiting |
+| `fixer:wontfix` | Gray | Fixer abandoned this issue |
+
+### Resuming a NEEDS_HUMAN issue
+
+Reply to the issue comment Fixer left. On the next run, Fixer detects your
+reply, appends it to the issue context, and re-classifies. If it now looks
+fixable, it proceeds as normal.
+
+### Overriding WONTFIX
+
+Remove the `fixer:wontfix` label and reply with additional context explaining
+why the issue should be fixed. Fixer will re-classify on the next run.
+
+## Persistent State
+
+Fixer stores run history at `~/.fixer/state.json` (override with `FIXER_STATE_FILE`).
+
+The file tracks each issue's classification, status, attempt history, and pending
+questions. It is used across runs so Fixer is never blind to prior attempts.
+
+To debug why an issue is being skipped, inspect its state:
+
+```bash
+jq '.issues["owner/repo#42"]' ~/.fixer/state.json
+```
+
+To reset an issue and force a re-run:
+
+```bash
+jq 'del(.issues["owner/repo#42"])' ~/.fixer/state.json > /tmp/state.json.tmp \
+  && mv /tmp/state.json.tmp ~/.fixer/state.json
+```
+
+## Running Tests
+
+Fixer includes a [bats-core](https://github.com/bats-core/bats-core) test suite
+covering the state machine and classify verdict parser.
+
+Install bats (dev-only, not required for normal use):
+
+```bash
+brew install bats-core          # macOS
+sudo apt-get install -y bats    # Debian/Ubuntu/WSL
+```
+
+Run the suite:
+
+```bash
+bats tests/
+```
+
+Expected output: all tests pass. The suite does not call the real `gh` API
+or Claude — all external calls are stubbed.
 
 ## Notifications
 
@@ -291,11 +389,16 @@ fixer docker octocat/hello-world
 fixer/
 ├── bin/fixer.js          # CLI entry point (Node.js, zero dependencies)
 ├── fixer.sh              # Core agent orchestrator (bash)
+├── lib/
+│   ├── state.sh          # Persistent state management (sourced by fixer.sh)
+│   └── classify.sh       # Classify verdict parser (sourced by fixer.sh)
 ├── prompts/
+│   ├── classify.txt      # Classify sub-agent prompt template
 │   ├── fix.txt           # Fix agent prompt template
 │   ├── review.txt        # Code review sub-agent prompt
 │   ├── test.txt          # Test runner sub-agent prompt
 │   └── security.txt      # Security review sub-agent prompt
+├── tests/                # bats test suite (dev-only)
 ├── Dockerfile            # Container image definition
 ├── entrypoint.sh         # Container entrypoint (config setup)
 ├── run-container.sh      # Docker run wrapper
@@ -306,16 +409,23 @@ fixer/
 
 For each issue, fixer runs this pipeline:
 
-1. **Clone/update** the target repo
-2. **Create a branch** (`fix/issue-<number>`)
-3. **Fix agent** — Claude reads the codebase, implements a fix, writes tests
-4. **Commit** the changes
-5. **Verification** — three sub-agents run in parallel:
+1. **Load state** — check `~/.fixer/state.json`; skip done/abandoned issues; resume
+   awaiting-human issues when new human comments are detected
+2. **Clone/update** the target repo
+3. **Create a branch** (`fix/issue-<number>`)
+4. **Classify** — Claude reads the issue and codebase context, then outputs
+   AUTO_FIX, NEEDS_HUMAN, or WONTFIX
+   - NEEDS_HUMAN: posts a question comment, labels the issue `fixer:awaiting-human`,
+     and waits for the next run
+   - WONTFIX: posts a wontfix comment, labels the issue `fixer:wontfix`, moves on
+5. **Fix agent** — Claude reads the codebase, implements a fix, writes tests
+6. **Commit** the changes
+7. **Verification** — three sub-agents run in parallel:
    - **Code review agent** — checks correctness, regressions, edge cases, scope
    - **Test runner agent** — runs the project's test suite
    - **Security agent** — scans the diff for vulnerabilities
-6. If any verification fails, the feedback is appended to the fix prompt and the fix agent retries (up to `maxRetries`)
-7. On success: **push**, **create PR**, **enable auto-merge**, **notify**
+8. If any verification fails, the feedback is appended to the fix prompt and the fix agent retries (up to `maxRetries`)
+9. On success: **push**, **create PR**, **enable auto-merge**, **notify**
 
 ### Prompt templates
 
@@ -323,9 +433,11 @@ Prompts use `{{PLACEHOLDER}}` syntax for variable substitution. Available variab
 
 | Variable | Available in | Description |
 |----------|-------------|-------------|
-| `{{ISSUE_NUMBER}}` | fix, review, test | GitHub issue number |
-| `{{ISSUE_TITLE}}` | fix, review, test | Issue title |
-| `{{ISSUE_BODY}}` | fix, review | Full issue body |
+| `{{ISSUE_NUMBER}}` | classify, fix, review, test | GitHub issue number |
+| `{{ISSUE_TITLE}}` | classify, fix, review, test | Issue title |
+| `{{ISSUE_BODY}}` | classify, fix, review | Full issue body |
+| `{{CODEBASE_CONTEXT}}` | classify, fix, review | Convention files, factory patterns, singletons |
+| `{{VERIFICATION_CRITERIA}}` | fix, review, test | Parsed from `## Verification` section |
 | `{{DIFF}}` | review, security | Git diff of changes |
 
 You can customize the prompts by editing the files in `prompts/`.
