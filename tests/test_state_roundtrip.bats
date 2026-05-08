@@ -81,7 +81,15 @@ teardown() {
     [ "$count" -eq 2 ]
 }
 
-@test "state writes leave no .tmp file behind" {
+@test "state writes leave no .tmp file behind on success" {
     state_init_issue "owner/repo#1" "Test bug" "2026-05-08T00:00:00Z"
+    [ ! -f "${FIXER_STATE_FILE}.tmp" ]
+}
+
+@test "state writes clean up .tmp on jq failure" {
+    state_init_issue "owner/repo#1" "Test bug" "2026-05-08T00:00:00Z"
+    # Invalid JSON causes jq --argjson to fail; .tmp must not be left behind
+    run state_upsert_issue "owner/repo#1" 'not-valid-json'
+    [ "$status" -ne 0 ]
     [ ! -f "${FIXER_STATE_FILE}.tmp" ]
 }

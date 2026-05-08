@@ -32,7 +32,7 @@ state_init_issue() {
            last_question: null, last_question_timestamp: null,
            first_seen: $now, last_run: null
          } end' \
-        "$FIXER_STATE_FILE" > "$tmp" && mv -f "$tmp" "$FIXER_STATE_FILE"
+        "$FIXER_STATE_FILE" > "$tmp" && mv -f "$tmp" "$FIXER_STATE_FILE" || { rm -f "$tmp"; return 1; }
 }
 
 # Merge the given JSON object into the issue record.
@@ -41,7 +41,7 @@ state_upsert_issue() {
     local tmp="${FIXER_STATE_FILE}.tmp"
     jq --arg id "$id" --argjson u "$updates" \
         '.issues[$id] += $u' \
-        "$FIXER_STATE_FILE" > "$tmp" && mv -f "$tmp" "$FIXER_STATE_FILE"
+        "$FIXER_STATE_FILE" > "$tmp" && mv -f "$tmp" "$FIXER_STATE_FILE" || { rm -f "$tmp"; return 1; }
 }
 
 # Append a single attempt JSON object to issues[id].attempts[].
@@ -50,7 +50,7 @@ state_append_attempt() {
     local tmp="${FIXER_STATE_FILE}.tmp"
     jq --arg id "$id" --argjson a "$attempt" \
         '.issues[$id].attempts += [$a]' \
-        "$FIXER_STATE_FILE" > "$tmp" && mv -f "$tmp" "$FIXER_STATE_FILE"
+        "$FIXER_STATE_FILE" > "$tmp" && mv -f "$tmp" "$FIXER_STATE_FILE" || { rm -f "$tmp"; return 1; }
 }
 
 # Returns the non-fixer comments posted after since_ts on this issue.
