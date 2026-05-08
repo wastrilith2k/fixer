@@ -337,6 +337,23 @@ extract_verdict() {
 }
 
 # -----------------------------------------------------------------------------
+# Helper: create fixer labels on the target repo if they don't already exist.
+# Idempotent — gh label create exits non-zero if label exists; we ignore that.
+# -----------------------------------------------------------------------------
+ensure_labels() {
+    local owner="$1" repo="$2"
+    gh label create "fixer:in-progress"    --color "0075CA" \
+        --description "Fixer is actively working on this issue" \
+        -R "$owner/$repo" 2>/dev/null || true
+    gh label create "fixer:awaiting-human" --color "FBCA04" \
+        --description "Fixer needs more information from the maintainer" \
+        -R "$owner/$repo" 2>/dev/null || true
+    gh label create "fixer:wontfix"        --color "808080" \
+        --description "Fixer determined this issue should not be auto-fixed" \
+        -R "$owner/$repo" 2>/dev/null || true
+}
+
+# -----------------------------------------------------------------------------
 # Helper: run verification sub-agents and return pass/fail
 # Returns 0 if all pass, 1 if any fail. Sets FEEDBACK variable with failure details.
 # -----------------------------------------------------------------------------
@@ -468,6 +485,15 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
     # Transition to in_progress
     state_upsert_issue "$ISSUE_ID" \
         "$(jq -n --arg t "$NOW" '{status:"in_progress",last_run:$t}')"
+
+    # Ensure fixer labels exist on the target repo (idempotent)
+    ensure_labels "$OWNER" "$NAME"
+    gh issue edit "$ISSUE_NUMBER" -R "$REPO" --add-label "fixer:in-progress" 2>/dev/null || true
+
+    # Wontfix resurrection: remove the fixer:wontfix label so it doesn't persist
+    if [[ "$PREV_STATUS" == "abandoned" && "$PREV_CLASSIFICATION" == "wontfix" ]]; then
+        gh issue edit "$ISSUE_NUMBER" -R "$REPO" --remove-label "fixer:wontfix" 2>/dev/null || true
+    fi
 
     echo ""
     log "============================================================"
@@ -607,6 +633,7 @@ EOF
 
         ok "PR created: $PR_URL"
         PR_URLS+=("$PR_URL")
+        gh issue edit "$ISSUE_NUMBER" -R "$REPO" --remove-label "fixer:in-progress" 2>/dev/null || true
 
         # --- Comment on the issue with a summary of changes ---
         log "  Commenting on issue #${ISSUE_NUMBER}..."
@@ -678,6 +705,7 @@ COMMENT_EOF
         gh issue comment "$ISSUE_NUMBER" -R "$REPO" --body "$FAIL_COMMENT" 2>/dev/null \
             && ok "  Commented on issue #${ISSUE_NUMBER}" \
             || warn "  Could not comment on issue #${ISSUE_NUMBER}"
+        gh issue edit "$ISSUE_NUMBER" -R "$REPO" --remove-label "fixer:in-progress" 2>/dev/null || true
 
         notify \
             "Fixer: FAILED to fix #${ISSUE_NUMBER}" \
