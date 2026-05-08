@@ -52,6 +52,14 @@ if [[ -z "${CLAUDE_PERM:-}" ]]; then
     fi
 fi
 FIXER_LOG="${FIXER_LOG:-/tmp/fixer-$(date +%Y%m%d-%H%M%S).log}"
+FIXER_STATE_FILE="${FIXER_STATE_FILE:-$HOME/.fixer/state.json}"
+export FIXER_STATE_FILE
+
+# Source lib modules
+# shellcheck source=lib/state.sh
+source "$SCRIPT_DIR/lib/state.sh"
+# shellcheck source=lib/classify.sh
+source "$SCRIPT_DIR/lib/classify.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -167,6 +175,10 @@ for cmd in gh claude git jq curl; do
         exit 1
     fi
 done
+
+# Initialise persistent state file
+state_init
+log "State file: $FIXER_STATE_FILE"
 
 log "Log file: $FIXER_LOG"
 log "Max retries per issue: $MAX_RETRIES"
@@ -429,6 +441,33 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
     ISSUE_TITLE="$(echo "$ISSUES_JSON" | jq -r ".[$i].title")"
     ISSUE_BODY="$(echo "$ISSUES_JSON" | jq -r ".[$i].body")"
     BRANCH_NAME="fix/issue-${ISSUE_NUMBER}"
+
+    ISSUE_ID="${REPO}#${ISSUE_NUMBER}"
+    NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    # --- State: create record if absent; skip or resume based on current status ---
+    state_init_issue "$ISSUE_ID" "$ISSUE_TITLE" "$NOW"
+
+    if ! issue_get_action "$ISSUE_ID" "$OWNER" "$NAME" "$ISSUE_NUMBER" "$ISSUE_BODY"; then
+        log "Skipping #${ISSUE_NUMBER} (${ISSUE_TITLE}): $FIXER_SKIP_REASON"
+        RESULTS+=("#${ISSUE_NUMBER}: SKIP — $FIXER_SKIP_REASON")
+        continue
+    fi
+
+    # Augment body with new human comments when resuming from awaiting_human or wontfix
+    if [[ -n "$FIXER_AUGMENTED_BODY" ]]; then
+        ISSUE_BODY="$FIXER_AUGMENTED_BODY"
+    fi
+
+    # Read current state once so we can check both status and classification
+    # before overwriting them (used for label cleanup and wontfix resurrection detection)
+    _ISSUE_BEFORE="$(state_get_issue "$ISSUE_ID")"
+    PREV_STATUS="$(printf '%s' "$_ISSUE_BEFORE" | jq -r '.status')"
+    PREV_CLASSIFICATION="$(printf '%s' "$_ISSUE_BEFORE" | jq -r '.classification // ""')"
+
+    # Transition to in_progress
+    state_upsert_issue "$ISSUE_ID" \
+        "$(jq -n --arg t "$NOW" '{status:"in_progress",last_run:$t}')"
 
     echo ""
     log "============================================================"
