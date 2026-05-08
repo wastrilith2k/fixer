@@ -354,6 +354,65 @@ ensure_labels() {
 }
 
 # -----------------------------------------------------------------------------
+# Helper: extract acceptance criteria from a "## Verification" section in the
+# issue body. Returns a string ready to be substituted into prompts.
+# -----------------------------------------------------------------------------
+parse_verification_criteria() {
+    local body="$1"
+    local criteria
+    criteria="$(printf '%s\n' "$body" \
+        | awk '/^## Verification/{found=1; next} found && /^## /{exit} found{print}')"
+    if [[ -z "$(printf '%s' "$criteria" | tr -d '[:space:]')" ]]; then
+        printf '%s' "(none specified — use general code quality standards)"
+    else
+        printf '%s' "$criteria"
+    fi
+}
+
+# Post a NEEDS_HUMAN comment on the issue and apply the awaiting-human label.
+post_needs_human_comment() {
+    local issue_number="$1" question="$2" ts="$3"
+    local body
+    body="$(cat <<COMMENT_EOF
+## Fixer needs more information
+
+${question}
+
+Reply to this issue with the details above and Fixer will retry on its
+next run.
+
+<!-- fixer:state-comment -->
+<!-- fixer:status=awaiting_human -->
+<!-- fixer:question_timestamp=${ts} -->
+COMMENT_EOF
+)"
+    gh issue comment "$issue_number" -R "$REPO" --body "$body" 2>/dev/null \
+        && ok "  Posted NEEDS_HUMAN question on issue #${issue_number}" \
+        || warn "  Could not post NEEDS_HUMAN comment on issue #${issue_number}"
+}
+
+# Post a WONTFIX comment and apply the wontfix label.
+post_wontfix_comment() {
+    local issue_number="$1" reason="$2" ts="$3"
+    local body
+    body="$(cat <<COMMENT_EOF
+## Fixer won't attempt this issue
+
+${reason}
+
+This issue has been labeled \`fixer:wontfix\` and won't be retried automatically. If you disagree, remove the label and reply with additional context — Fixer will re-classify on the next run.
+
+<!-- fixer:state-comment -->
+<!-- fixer:status=abandoned -->
+<!-- fixer:question_timestamp=${ts} -->
+COMMENT_EOF
+)"
+    gh issue comment "$issue_number" -R "$REPO" --body "$body" 2>/dev/null \
+        && ok "  Posted WONTFIX comment on issue #${issue_number}" \
+        || warn "  Could not post WONTFIX comment on issue #${issue_number}"
+}
+
+# -----------------------------------------------------------------------------
 # Helper: run verification sub-agents and return pass/fail
 # Returns 0 if all pass, 1 if any fail. Sets FEEDBACK variable with failure details.
 # -----------------------------------------------------------------------------
@@ -520,6 +579,68 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
     # --- Gather codebase context (once per issue, reused across retries) ---
     log "  Gathering codebase context..."
     CODEBASE_CONTEXT="$(gather_codebase_context "$REPO_DIR")"
+
+    # --- Parse acceptance criteria from issue body ---
+    VERIFICATION_CRITERIA="$(parse_verification_criteria "$ISSUE_BODY")"
+
+    # --- Classify (single call, not retried) ---
+    log "  Running classify agent..."
+    CLASSIFY_PROMPT="$(render_prompt "$SCRIPT_DIR/prompts/classify.txt" \
+        "ISSUE_NUMBER=$ISSUE_NUMBER" \
+        "ISSUE_TITLE=$ISSUE_TITLE" \
+        "ISSUE_BODY=$ISSUE_BODY" \
+        "CODEBASE_CONTEXT=$CODEBASE_CONTEXT")"
+    CLASSIFY_OUTPUT_FILE="$TMPDIR/classify-${ISSUE_NUMBER}.txt"
+    echo "$CLASSIFY_PROMPT" | claude -p $CLAUDE_PERM > "$CLASSIFY_OUTPUT_FILE" 2>&1 \
+        || warn "  Classify agent exited non-zero; will parse output anyway"
+    CLASSIFY_RAW="$(cat "$CLASSIFY_OUTPUT_FILE")"
+    parse_classify_verdict "$CLASSIFY_RAW"
+    log "  Classification: $CLASSIFY_KIND${CLASSIFY_DETAIL:+ — $CLASSIFY_DETAIL}"
+
+    # Store classification (lowercase for schema)
+    CLASSIFY_KIND_LOWER="$(printf '%s' "$CLASSIFY_KIND" | tr '[:upper:]' '[:lower:]')"
+    state_upsert_issue "$ISSUE_ID" \
+        "$(jq -n --arg c "$CLASSIFY_KIND_LOWER" '{classification:$c}')"
+
+    if [[ "$CLASSIFY_KIND" == "NEEDS_HUMAN" ]]; then
+        post_needs_human_comment "$ISSUE_NUMBER" "$CLASSIFY_DETAIL" "$NOW"
+        gh issue edit "$ISSUE_NUMBER" -R "$REPO" \
+            --add-label "fixer:awaiting-human" \
+            --remove-label "fixer:in-progress" 2>/dev/null || true
+        state_upsert_issue "$ISSUE_ID" "$(jq -n \
+            --arg q "$CLASSIFY_DETAIL" --arg t "$NOW" \
+            '{status:"awaiting_human",last_question:$q,last_question_timestamp:$t}')"
+        state_append_attempt "$ISSUE_ID" "$(jq -n \
+            --arg t "$NOW" --arg s "NEEDS_HUMAN: $CLASSIFY_DETAIL" \
+            '{timestamp:$t,outcome:"classify_halted",
+              feedback_summary:($s|.[0:500]),diff_stat:""}')"
+        RESULTS+=("#${ISSUE_NUMBER}: NEEDS_HUMAN — question posted")
+        git checkout "$DEFAULT_BRANCH" 2>/dev/null
+        continue
+    fi
+
+    if [[ "$CLASSIFY_KIND" == "WONTFIX" ]]; then
+        post_wontfix_comment "$ISSUE_NUMBER" "$CLASSIFY_DETAIL" "$NOW"
+        gh issue edit "$ISSUE_NUMBER" -R "$REPO" \
+            --add-label "fixer:wontfix" \
+            --remove-label "fixer:in-progress" \
+            --remove-label "fixer:awaiting-human" 2>/dev/null || true
+        state_upsert_issue "$ISSUE_ID" "$(jq -n \
+            --arg t "$NOW" '{status:"abandoned",last_question_timestamp:$t}')"
+        state_append_attempt "$ISSUE_ID" "$(jq -n \
+            --arg t "$NOW" --arg s "WONTFIX: $CLASSIFY_DETAIL" \
+            '{timestamp:$t,outcome:"classify_halted",
+              feedback_summary:($s|.[0:500]),diff_stat:""}')"
+        RESULTS+=("#${ISSUE_NUMBER}: WONTFIX — abandoned")
+        git checkout "$DEFAULT_BRANCH" 2>/dev/null
+        continue
+    fi
+
+    # AUTO_FIX path: remove awaiting-human label if resuming
+    if [[ "$PREV_STATUS" == "awaiting_human" ]]; then
+        gh issue edit "$ISSUE_NUMBER" -R "$REPO" \
+            --remove-label "fixer:awaiting-human" 2>/dev/null || true
+    fi
 
     for attempt in $(seq 1 "$MAX_RETRIES"); do
         log "Attempt $attempt/$MAX_RETRIES for issue #${ISSUE_NUMBER}"
