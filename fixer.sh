@@ -645,6 +645,7 @@ for i in $(seq 0 $((ISSUE_COUNT - 1))); do
     fi
 
     for attempt in $(seq 1 "$MAX_RETRIES"); do
+        NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         log "Attempt $attempt/$MAX_RETRIES for issue #${ISSUE_NUMBER}"
 
         # --- Build fix prompt (include feedback from prior attempts) ---
@@ -675,6 +676,10 @@ $FEEDBACK"
             > "$FIX_OUTPUT" 2>&1; then
             err "  Fix agent failed"
             FEEDBACK="Fix agent crashed. Error output: $(tail -20 "$FIX_OUTPUT")"
+            state_append_attempt "$ISSUE_ID" "$(jq -n \
+                --arg t "$NOW" --arg s "${FEEDBACK:0:500}" \
+                '{timestamp:$t,outcome:"fix_crashed",
+                  feedback_summary:$s,diff_stat:""}')"
             continue
         fi
         ok "  Fix agent completed"
@@ -690,6 +695,10 @@ $FEEDBACK"
             else
                 warn "  No changes made by fix agent"
                 FEEDBACK="Fix agent did not make any changes to the codebase. You MUST edit files to fix the bug."
+                state_append_attempt "$ISSUE_ID" "$(jq -n \
+                    --arg t "$NOW" \
+                    '{timestamp:$t,outcome:"no_changes",
+                      feedback_summary:"Fix agent did not make any changes.",diff_stat:""}')"
                 continue
             fi
         else
@@ -706,12 +715,21 @@ Includes regression tests." || {
         ok "  Changes committed on branch $BRANCH_NAME"
 
         # --- Run verification ---
+        DIFF_STAT="$(git diff --stat "${DEFAULT_BRANCH}...HEAD" 2>/dev/null)"
         if run_verification "$ISSUE_NUMBER" "$ISSUE_TITLE" "$ISSUE_BODY" "$attempt" "$TMPDIR"; then
             ok "Issue #${ISSUE_NUMBER}: ALL CHECKS PASSED on attempt $attempt"
+            state_append_attempt "$ISSUE_ID" "$(jq -n \
+                --arg t "$NOW" --arg d "$DIFF_STAT" \
+                '{timestamp:$t,outcome:"success",
+                  feedback_summary:"",diff_stat:$d}')"
             ISSUE_RESOLVED=true
             break
         else
             warn "  Verification failed on attempt $attempt, will retry..."
+            state_append_attempt "$ISSUE_ID" "$(jq -n \
+                --arg t "$NOW" --arg s "${FEEDBACK:0:500}" --arg d "$DIFF_STAT" \
+                '{timestamp:$t,outcome:"verification_failed",
+                  feedback_summary:$s,diff_stat:$d}')"
         fi
     done
 
@@ -758,6 +776,7 @@ EOF
         ok "PR created: $PR_URL"
         PR_URLS+=("$PR_URL")
         gh issue edit "$ISSUE_NUMBER" -R "$REPO" --remove-label "fixer:in-progress" 2>/dev/null || true
+        state_upsert_issue "$ISSUE_ID" '{"status":"done"}'
 
         # --- Comment on the issue with a summary of changes ---
         log "  Commenting on issue #${ISSUE_NUMBER}..."
@@ -830,6 +849,7 @@ COMMENT_EOF
             && ok "  Commented on issue #${ISSUE_NUMBER}" \
             || warn "  Could not comment on issue #${ISSUE_NUMBER}"
         gh issue edit "$ISSUE_NUMBER" -R "$REPO" --remove-label "fixer:in-progress" 2>/dev/null || true
+        state_upsert_issue "$ISSUE_ID" '{"status":"abandoned"}'
 
         notify \
             "Fixer: FAILED to fix #${ISSUE_NUMBER}" \
