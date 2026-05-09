@@ -9,6 +9,23 @@ Issue #42: "Login fails when email has uppercase"
   │
   ▼
 ┌─────────────────────────────────────────────┐
+│  State check (~/.fixer/state.json)          │
+│  - already done? → skip                     │
+│  - awaiting human? → check for new replies  │
+└─────────────┬───────────────────────────────┘
+              │ process
+              ▼
+┌─────────────────────────────────────────────┐
+│  Classify Agent (Claude)                    │
+│  - reads issue + codebase context           │
+│  - outputs AUTO_FIX / NEEDS_HUMAN / WONTFIX │
+└──────┬──────────────┬────────────────┬──────┘
+       │ AUTO_FIX     │ NEEDS_HUMAN    │ WONTFIX
+       │              ▼                ▼
+       │    post question +     post note +
+       │    await reply         skip issue
+       ▼
+┌─────────────────────────────────────────────┐
 │  Fix Agent (Claude)                         │
 │  - reads the codebase                       │
 │  - implements a minimal, targeted fix       │
@@ -185,6 +202,7 @@ Environment variables take precedence over config file values. Useful for CI or 
 | `REPOS_ROOT` | — | Root directory for cloned repos (default: `~/repos`) |
 | `MAX_RETRIES` | `maxRetries` | Max fix attempts per issue |
 | `AUTO_MERGE` | `autoMerge` | `"true"` or `"false"` |
+| `KEEP_REPO` | — | `"true"` to keep the cloned repo after completion (default: `"false"`) |
 | `NOTIFY_METHOD` | `notify` | Notification backend(s) |
 | `SLACK_WEBHOOK` | `slackWebhook` | Slack webhook URL |
 | `NTFY_TOPIC` | `ntfyTopic` | ntfy.sh topic |
